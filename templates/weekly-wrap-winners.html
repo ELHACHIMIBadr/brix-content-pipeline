@@ -1,0 +1,39 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><style>* { margin: 0; padding: 0; box-sizing: border-box; }
+body { width: 1080px; height: 1920px; background: #0D1B35; color: #fff; font-family: 'Inter', 'Segoe UI', system-ui, sans-serif; overflow: hidden; display: flex; flex-direction: column; padding: 80px 60px 60px; }
+.tag { display: inline-block; padding: 10px 24px; border-radius: 8px; font-size: 22px; font-weight: 700; letter-spacing: 0.15em; background: rgba(245,200,66,0.12); color: #F5C842; }
+.tag.green { background: rgba(52,211,153,0.12); color: #34D399; }
+.tag.red { background: rgba(248,113,113,0.12); color: #F87171; }
+h1 { font-size: 72px; font-weight: 800; line-height: 1.12; }
+h2 { font-size: 56px; font-weight: 800; line-height: 1.15; }
+.muted { color: rgba(255,255,255,0.4); }
+.small { font-size: 24px; letter-spacing: 0.05em; }
+.photo-box { width: 100%; border-radius: 28px; overflow: hidden; background: linear-gradient(135deg, rgba(245,200,66,0.06), rgba(245,200,66,0.02)); border: 2px solid rgba(245,200,66,0.1); display: flex; align-items: center; justify-content: center; position: relative; margin: 24px 0; }
+.photo-box img { width: 100%; height: 100%; object-fit: contain; }
+.photo-box .photo-placeholder { font-size: 80px; }
+.set-num { position: absolute; top: 16px; right: 16px; background: rgba(13,27,53,0.85); border: 1px solid rgba(245,200,66,0.2); border-radius: 12px; padding: 6px 16px; font-size: 22px; color: rgba(255,255,255,0.5); }
+.stat-row { display: flex; gap: 16px; margin-top: 20px; }
+.stat-box { flex: 1; background: rgba(255,255,255,0.04); border-radius: 20px; padding: 24px 28px; }
+.stat-box .label { font-size: 18px; color: rgba(255,255,255,0.35); letter-spacing: 0.12em; margin-bottom: 10px; }
+.stat-box .value { font-size: 36px; font-weight: 700; }
+.chart-box { background: rgba(255,255,255,0.04); border-radius: 20px; padding: 28px; margin-top: 16px; }
+.big-number { font-size: 96px; font-weight: 800; line-height: 1; letter-spacing: -0.03em; }
+.price-card { background: rgba(52,211,153,0.06); border: 2px solid rgba(52,211,153,0.15); border-radius: 28px; padding: 36px; text-align: center; margin: 24px 0; }
+.footer { margin-top: auto; padding-top: 20px; display: flex; align-items: center; justify-content: space-between; }
+.logo { display: flex; align-items: center; gap: 14px; }
+.logo-icon { width: 52px; height: 52px; background: #F5C842; border-radius: 11px; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 20px; color: #0D1B35; }
+.logo-text { font-weight: 700; font-size: 26px; color: #F5C842; letter-spacing: 0.08em; }
+.url { font-size: 20px; color: rgba(255,255,255,0.3); }
+.rank { width: 64px; height: 64px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 28px; }
+.spacer { flex: 1; }
+.gold { color: #F5C842; } .green { color: #34D399; } .red { color: #F87171; }</style></head><body>
+<div class="tag green">TOP PERFORMER</div>
+<div style="display:flex;gap:24px;margin:20px 0;align-items:center">
+  <div style="width:180px;height:180px;border-radius:24px;overflow:hidden;background:rgba(245,200,66,0.06);border:1px solid rgba(245,200,66,0.1);display:flex;align-items:center;justify-content:center;flex-shrink:0">{{SET_IMAGE}}</div>
+  <div><p class="muted small">{{THEME}} &middot; #{{SET_NUMBER}}</p><h2 style="font-size:44px;margin:6px 0">{{NAME}}</h2><span style="font-size:56px;font-weight:800;color:#34D399">{{DAILY_CHANGE}}</span></div></div>
+<div class="chart-box">{{TREND_SVG_GREEN}}</div>
+<div class="stat-row" style="margin-top:20px">
+  <div class="stat-box"><div class="label">RETAIL</div><div class="value muted">{{RETAIL_PRICE}}</div></div>
+  <div class="stat-box"><div class="label">NOW</div><div class="value gold">{{CURRENT_VALUE}}</div></div>
+  <div class="stat-box"><div class="label">ROI</div><div class="value green">{{ROI}}</div></div></div>
+<div class="footer"><div class="logo"><div class="logo-icon">BX</div><span class="logo-text">BRIX</span></div><span class="url">brixcollector.com</span></div>
+</body></html>
