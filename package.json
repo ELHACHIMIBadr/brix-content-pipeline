@@ -10,7 +10,10 @@
   },
   "dependencies": {
     "puppeteer": "^23.0.0",
-    "@anthropic-ai/sdk": "^0.30.0"
+    "@anthropic-ai/sdk": "^0.30.0",
+    "dotenv": "^16.4.0",
+    "cheerio": "^1.0.0",
+    "firebase-admin": "^13.0.0"
   },
   "engines": {
     "node": ">=20.0.0"

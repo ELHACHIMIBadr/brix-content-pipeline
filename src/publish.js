@@ -1,138 +1,123 @@
 /**
- * Buffer GraphQL API publisher
- * Schedules carousel posts on TikTok and Instagram
+ * Buffer GraphQL API publisher — correct mutation format
+ * Creates image posts on TikTok and Instagram
  */
-
-import { readFileSync } from 'fs';
 
 const BUFFER_API = 'https://api.buffer.com';
 
-async function bufferQuery(query, variables, apiKey) {
+async function bufferGraphQL(query, apiKey) {
   const res = await fetch(BUFFER_API, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
       'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ query, variables }),
+    body: JSON.stringify({ query }),
   });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Buffer API error ${res.status}: ${text}`);
-  }
-
   return res.json();
 }
 
 /**
- * Upload an image to Buffer and get a media URL
+ * Create a post with images on a single channel
  */
-async function uploadImage(imagePath, apiKey) {
-  const imageBuffer = readFileSync(imagePath);
-  const base64 = imageBuffer.toString('base64');
-  const mimeType = 'image/png';
+async function createImagePost(channelId, text, imageUrls, apiKey, isInstagram = false) {
+  // Build assets array — each image is { image: { url: "..." } }
+  const assetsStr = imageUrls
+    .map(url => `{ image: { url: "${url}" } }`)
+    .join(', ');
 
-  // Buffer's image upload uses REST, not GraphQL
-  const res = await fetch(`${BUFFER_API}/i/upload`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      media: `data:${mimeType};base64,${base64}`,
-    }),
-  });
+  // Escape text for GraphQL string
+  const escapedText = text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
 
-  if (!res.ok) {
-    throw new Error(`Image upload failed: ${res.status}`);
-  }
+  const metadataStr = isInstagram
+    ? `metadata: { instagram: { type: post, shouldShareToFeed: true } }`
+    : '';
 
-  const data = await res.json();
-  return data.url || data.uploaded_url;
-}
-
-/**
- * Create and schedule a carousel post on Buffer
- */
-export async function publishToBuffer(slidePaths, caption, config) {
-  const { apiKey, orgId, igChannelId, tiktokChannelId } = config;
-
-  if (!apiKey || !orgId) {
-    console.log('  ⏭️  Buffer not configured, skipping publish');
-    return null;
-  }
-
-  console.log(`  📤 Uploading ${slidePaths.length} images to Buffer...`);
-
-  // Upload all slide images
-  const mediaUrls = [];
-  for (const path of slidePaths) {
-    try {
-      const url = await uploadImage(path, apiKey);
-      mediaUrls.push(url);
-    } catch (err) {
-      console.error(`  ✗ Failed to upload ${path}:`, err.message);
-    }
-  }
-
-  if (mediaUrls.length === 0) {
-    console.error('  ✗ No images uploaded, skipping post');
-    return null;
-  }
-
-  // Create post on each channel
-  const channels = [];
-  if (igChannelId) channels.push(igChannelId);
-  if (tiktokChannelId) channels.push(tiktokChannelId);
-
-  if (channels.length === 0) {
-    console.log('  ⏭️  No channels configured');
-    return null;
-  }
-
-  const mutation = `
-    mutation CreateImagePost($input: CreateImagePostInput!) {
-      createImagePost(input: $input) {
-        id
-        status
-        scheduledAt
+  const query = `
+    mutation CreatePost {
+      createPost(
+        input: {
+          text: "${escapedText}"
+          channelId: "${channelId}"
+          schedulingType: automatic
+          mode: addToQueue
+          assets: [${assetsStr}]
+          ${metadataStr}
+        }
+      ) {
+        ... on PostActionSuccess {
+          post {
+            id
+            text
+            dueAt
+            assets {
+              id
+              mimeType
+            }
+          }
+        }
+        ... on MutationError {
+          message
+        }
       }
     }
   `;
 
-  const results = [];
-
-  for (const channelId of channels) {
-    try {
-      const result = await bufferQuery(mutation, {
-        input: {
-          organizationId: orgId,
-          channelIds: [channelId],
-          text: caption,
-          media: mediaUrls.map(url => ({ url })),
-          schedulingOption: 'next_available',
-        },
-      }, apiKey);
-
-      results.push(result);
-      console.log(`  ✅ Scheduled on channel ${channelId}`);
-    } catch (err) {
-      console.error(`  ✗ Failed to post to ${channelId}:`, err.message);
-    }
-  }
-
-  return results;
+  return bufferGraphQL(query, apiKey);
 }
 
 /**
- * Dry-run: just log what would be published
+ * Publish to all configured channels
  */
-export function dryRunPublish(slidePaths, caption, templateName) {
+export async function publishToBuffer(imageUrls, caption, config) {
+  const { apiKey, igChannelId, tiktokChannelId } = config;
+
+  if (!apiKey) {
+    console.log('  ⏭️  Buffer not configured, skipping');
+    return null;
+  }
+
+  if (!imageUrls || imageUrls.length === 0) {
+    console.log('  ⏭️  No image URLs, skipping');
+    return null;
+  }
+
+  const channels = [];
+  if (igChannelId) channels.push({ id: igChannelId, name: 'Instagram', isInstagram: true });
+  if (tiktokChannelId) channels.push({ id: tiktokChannelId, name: 'TikTok', isInstagram: false });
+
+  console.log(`  📤 Publishing to ${channels.length} channel(s) via Buffer...`);
+
+  for (const channel of channels) {
+    try {
+      const result = await createImagePost(channel.id, caption, imageUrls, apiKey, channel.isInstagram);
+
+      if (result.errors) {
+        console.error(`  ✗ ${channel.name}: ${JSON.stringify(result.errors)}`);
+      } else if (result.data?.createPost?.post) {
+        const post = result.data.createPost.post;
+        console.log(`  ✅ ${channel.name}: scheduled (ID: ${post.id}, due: ${post.dueAt})`);
+      } else if (result.data?.createPost?.message) {
+        console.error(`  ✗ ${channel.name}: ${result.data.createPost.message}`);
+      } else {
+        console.error(`  ✗ ${channel.name}: unexpected response`, JSON.stringify(result));
+      }
+    } catch (err) {
+      console.error(`  ✗ ${channel.name}: ${err.message}`);
+    }
+  }
+}
+
+/**
+ * Dry-run: log what would be published
+ */
+export function dryRunPublish(slidePaths, caption, templateName, imageUrls) {
   console.log(`\n📋 DRY RUN — ${templateName}`);
   console.log(`   Slides: ${slidePaths.length} images`);
-  slidePaths.forEach((p, i) => console.log(`     ${i + 1}. ${p}`));
+  if (imageUrls?.length) {
+    console.log(`   Firebase URLs:`);
+    imageUrls.forEach((u, i) => console.log(`     ${i + 1}. ${u}`));
+  }
   console.log(`   Caption preview (first 200 chars):`);
   console.log(`     "${caption.substring(0, 200)}..."`);
   console.log('');

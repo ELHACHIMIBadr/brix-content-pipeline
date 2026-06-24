@@ -10,7 +10,19 @@ import { fileURLToPath } from 'url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = join(__dirname, '..', 'data');
 const HISTORY_FILE = join(DATA_DIR, 'price-history.json');
+const CACHE_FILE = join(DATA_DIR, 'sets-cache.json');
 const API_BASE = 'https://www.brickeconomy.com/api/v1';
+
+function loadCache() {
+  if (!existsSync(CACHE_FILE)) return null;
+  try {
+    return JSON.parse(readFileSync(CACHE_FILE, 'utf8'));
+  } catch { return null; }
+}
+
+function saveCache(results, date) {
+  writeFileSync(CACHE_FILE, JSON.stringify({ _fetchDate: date, sets: results }, null, 2));
+}
 
 function loadHistory() {
   if (!existsSync(HISTORY_FILE)) return {};
@@ -59,11 +71,38 @@ export async function fetchAllSets(apiKey) {
   const today = new Date().toISOString().split('T')[0];
   const results = [];
 
+  const isOffline = process.argv.includes('--offline');
+
+  // Check if we already fetched today — use cache to save API quota
+  const cached = loadCache();
+  if (cached && cached._fetchDate === today && !process.argv.includes('--force-fetch')) {
+    console.log(`📋 Already fetched today (${today}) — using cache (${cached.sets.length} sets)`);
+    console.log('   (use --force-fetch to override)');
+    return cached.sets;
+  }
+
+  if (isOffline) {
+    if (cached) { console.log('📋 Offline mode — using cached data'); return cached.sets; }
+    console.error('❌ No cache available'); return [];
+  }
+
   console.log(`📦 Fetching ${setNumbers.length} sets from BrickEconomy...`);
+  let rateLimited = false;
 
   for (const num of setNumbers) {
     const data = await fetchSet(num, apiKey);
-    if (!data) continue;
+    if (!data) {
+      // If we get rate limited, stop and fall back to cache
+      if (!rateLimited) rateLimited = true;
+      if (results.length === 0 && rateLimited) {
+        const cached = loadCache();
+        if (cached) {
+          console.log('⚠️  Rate limited — falling back to cached data');
+          return cached.sets;
+        }
+      }
+      continue;
+    }
 
     // Update price history
     if (!history[num]) history[num] = [];
@@ -112,44 +151,68 @@ export async function fetchAllSets(apiKey) {
   }
 
   saveHistory(history);
+  if (results.length > 0) saveCache(results, today);
   console.log(`✅ Fetched ${results.length}/${setNumbers.length} sets`);
   return results;
 }
 
 /**
+ * Best available movement score for a set.
+ * Priority: daily_change (if we have history) → rolling_growth_12m → ROI from retail
+ */
+function movementScore(s) {
+  if (s.daily_change && Math.abs(s.daily_change) > 0.01) return s.daily_change;
+  if (s.rolling_growth_12m && Math.abs(s.rolling_growth_12m) > 0.01) return s.rolling_growth_12m;
+  return s.roi || 0;
+}
+
+/**
  * Select sets for each template type
+ * Smart fallback: when daily_change is 0 (first run), uses ROI or 12m growth instead
  */
 export function selectContent(allSets) {
-  const sorted = [...allSets].sort((a, b) => Math.abs(b.daily_change) - Math.abs(a.daily_change));
-  const gainers = allSets.filter(s => s.daily_change > 0).sort((a, b) => b.daily_change - a.daily_change);
-  const losers = allSets.filter(s => s.daily_change < 0).sort((a, b) => a.daily_change - b.daily_change);
-  const retired = allSets.filter(s => !s.retired).sort((a, b) => (b.roi || 0) - (a.roi || 0));
-  const byROI = [...allSets].sort((a, b) => b.roi - a.roi);
+  // Filter out sets with zero movement everywhere — nothing interesting to show
+  const interesting = allSets.filter(s => Math.abs(movementScore(s)) > 0.01);
+  const pool = interesting.length >= 3 ? interesting : allSets;
+
+  // Sort by best available positive movement
+  const topPositive = [...pool]
+    .filter(s => movementScore(s) > 0)
+    .sort((a, b) => movementScore(b) - movementScore(a));
+
+  // Sort by biggest absolute movement (for top movers)
+  const topMovers = [...pool]
+    .sort((a, b) => Math.abs(movementScore(b)) - Math.abs(movementScore(a)));
+
+  // Retired sets sorted by ROI (for retirement watch — pick non-retired with high potential)
+  const notRetired = pool.filter(s => !s.retired && s.roi > 0).sort((a, b) => b.roi - a.roi);
+
+  // By absolute ROI
+  const byROI = [...pool].sort((a, b) => (b.roi || 0) - (a.roi || 0));
+
+  // Top gainers: pick top 3 with positive movement, exclude zeros
+  const topGainers = topPositive.slice(0, 3);
+
+  // Price alert: biggest single positive mover (only if significant)
+  const alertCandidate = topPositive[0] || null;
+  const priceAlert = alertCandidate && Math.abs(movementScore(alertCandidate)) > 1 ? alertCandidate : null;
+
+  // Weekly wrap: best gainer + worst loser
+  const topLoser = [...pool].filter(s => movementScore(s) < 0).sort((a, b) => movementScore(a) - movementScore(b))[0] || null;
 
   return {
-    // Template 1: Top Gainers — top 3 biggest movers
-    topGainers: sorted.slice(0, 3),
-
-    // Template 2: Deep Dive — highest ROI set not featured elsewhere
+    topGainers: topGainers.length >= 3 ? topGainers : topMovers.slice(0, 3),
     deepDive: byROI[0] || null,
-
-    // Template 3: Price Alert — set with biggest absolute price change
-    priceAlert: gainers[0] || null,
-
-    // Template 4: Retirement Watch — non-retired set with highest ROI potential
-    retirementWatch: retired[0] || null,
-
-    // Template 5: Weekly Wrap (generated only on Mondays)
+    priceAlert,
+    retirementWatch: notRetired[0] || null,
     weeklyWrap: {
       totalSets: allSets.length,
-      avgMovement: allSets.reduce((s, x) => s + x.daily_change, 0) / allSets.length,
-      topGainer: gainers[0] || null,
-      topLoser: losers[0] || null,
+      avgMovement: allSets.reduce((s, x) => s + (x.daily_change || 0), 0) / allSets.length,
+      topGainer: topPositive[0] || byROI[0] || null,
+      topLoser,
       retiredCount: allSets.filter(s => s.retired).length,
-      athCount: gainers.filter(s => s.daily_change > 5).length,
+      athCount: topPositive.filter(s => movementScore(s) > 5).length,
     },
-
-    // Template 6: Set vs Set — top 2 by ROI
     setVsSet: byROI.length >= 2 ? [byROI[0], byROI[1]] : null,
   };
 }

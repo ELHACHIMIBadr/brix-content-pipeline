@@ -18,11 +18,11 @@ Write captions for TikTok and Instagram carousel posts about LEGO investing.
 Rules:
 - Hook in the first line (question, bold claim, or surprising stat)
 - 2-3 short paragraphs max
-- End with a CTA: "Follow @brixcollector for daily LEGO investment data"
-- Include 15-20 hashtags at the end, mix of high-volume and niche
-- Core hashtags always: #lego #legoinvesting #legocollector #brix #brixcollector
+- End with a CTA: "Follow @brix.app1 for daily LEGO investment data | Link in bio"
+- Always include ALL of these hashtags at the end, plus add 10 more relevant ones:
+  #LEGO #LEGOInvesting #LEGOCollector #BRIX #BrickInvestor #LEGORetired #LEGOValue #LEGOTOK #fyp #foryou #legotiktok #brickinvesting #legoinvestment #legosets #legocommunity
 - Tone: data-driven, confident, accessible. Not hype, not boring.
-- Do NOT use emojis in the body text. Only in hashtags if natural.
+- Do NOT use emojis in the body text.
 
 Return ONLY the caption text. No explanations.`;
 
@@ -31,11 +31,11 @@ export async function generateCaption(templateType, sets, apiKey) {
   const setData = Array.isArray(sets) ? sets : [sets];
 
   const setDescriptions = setData.map(s =>
-    `${s.name} (#${s.set_number}): ${s.theme}, ${s.year}, ${s.pieces} pcs, retail $${s.retail_price}, now $${Math.round(s.current_value)}, ROI ${s.roi > 0 ? '+' : ''}${s.roi}%, daily change ${s.daily_change > 0 ? '+' : ''}${s.daily_change}%, ${s.retired ? 'retired' : 'available'}`
+    `${s.name} (#${s.set_number}): ${s.theme}, ${s.year}, ${s.pieces} pcs, retail $${s.retail_price}, now $${Math.round(s.current_value)}, ROI ${s.roi > 0 ? '+' : ''}${s.roi}%, ${s.retired ? 'retired' : 'available'}`
   ).join('\n');
 
   const prompts = {
-    'top-gainers': `Write a caption for a "Top 3 LEGO Movers Today" carousel post. Sets:\n${setDescriptions}`,
+    'top-gainers': `Write a caption for a "Today's Top LEGO Movers" carousel post. Sets:\n${setDescriptions}`,
     'deep-dive': `Write a caption for a deep investment analysis of:\n${setDescriptions}\nInclude whether it's a buy/hold/sell.`,
     'price-alert': `Write a caption for a PRICE ALERT post. This set just had a significant price move:\n${setDescriptions}`,
     'retirement-watch': `Write a caption for a RETIREMENT WATCH post. This set is still available at retail but expected to appreciate:\n${setDescriptions}`,
@@ -56,8 +56,7 @@ export async function generateCaption(templateType, sets, apiKey) {
     return message.content[0].text.trim();
   } catch (err) {
     console.error('Caption generation error:', err.message);
-    // Fallback caption
     const name = setData[0]?.name || 'LEGO';
-    return `${name} is making moves. Track your LEGO investments with BRIX.\n\nFollow @brixcollector for daily LEGO investment data.\n\n#lego #legoinvesting #legocollector #brix #brixcollector #legoinvestment #legoretired #legodeals`;
+    return `${name} is making moves. Track your LEGO investments with BRIX.\n\nFollow @brix.app1 for daily LEGO investment data | Link in bio\n\n#LEGO #LEGOInvesting #LEGOCollector #BRIX #BrickInvestor #LEGORetired #LEGOValue #LEGOTOK #fyp #foryou #legotiktok #brickinvesting #legoinvestment #legosets #legocommunity`;
   }
 }

@@ -2,10 +2,9 @@ name: BRIX Content Pipeline
 
 on:
   schedule:
-    # Morning post: 7:00 AM UTC (adjust to your timezone)
-    - cron: '0 7 * * *'
-    # Evening post: 5:00 PM UTC
-    - cron: '0 17 * * *'
+    # Run daily at 6:00 AM London (5:00 UTC) — generates all posts for the day
+    # Buffer queues them and publishes at your scheduled slots
+    - cron: '0 5 * * *'
   workflow_dispatch: # Manual trigger
 
 jobs:
@@ -29,28 +28,22 @@ jobs:
       - name: Install Chromium for Puppeteer
         run: npx puppeteer browsers install chrome
 
-      - name: Restore price history cache
+      - name: Setup Firebase service account
+        run: echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > firebase-service-account.json
+
+      - name: Restore scrape cache
         uses: actions/cache@v4
         with:
-          path: data/price-history.json
-          key: price-history-${{ github.run_id }}
-          restore-keys: price-history-
+          path: data/scrape-cache.json
+          key: scrape-cache-${{ github.run_id }}
+          restore-keys: scrape-cache-
 
       - name: Run pipeline
         env:
-          BRICKECONOMY_API_KEY: ${{ secrets.BRICKECONOMY_API_KEY }}
-          REBRICKABLE_API_KEY: ${{ secrets.REBRICKABLE_API_KEY }}
           CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
+          REBRICKABLE_API_KEY: ${{ secrets.REBRICKABLE_API_KEY }}
           BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
           BUFFER_ORG_ID: ${{ secrets.BUFFER_ORG_ID }}
           BUFFER_IG_CHANNEL_ID: ${{ secrets.BUFFER_IG_CHANNEL_ID }}
           BUFFER_TIKTOK_CHANNEL_ID: ${{ secrets.BUFFER_TIKTOK_CHANNEL_ID }}
         run: node src/index.js
-
-      - name: Commit updated price history
-        run: |
-          git config user.name "BRIX Bot"
-          git config user.email "bot@brixcollector.com"
-          git add data/price-history.json
-          git diff --cached --quiet || git commit -m "📊 Update price history $(date +%Y-%m-%d)"
-          git push

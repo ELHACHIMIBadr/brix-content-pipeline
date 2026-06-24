@@ -21,19 +21,21 @@ body { width: 1080px; height: 1920px; background: #0D1B35; color: #fff; font-fam
 .tag { display: inline-block; padding: 10px 22px; border-radius: 8px; font-size: 22px; font-weight: 700; letter-spacing: 0.14em; background: rgba(245,200,66,0.12); color: #F5C842; }
 .tag-green { background: rgba(52,211,153,0.12); color: #34D399; }
 .tag-red { background: rgba(248,113,113,0.12); color: #F87171; }</style></head><body>
-<div class="row" style="margin-bottom:16px">
-  <div style="width:120px;height:120px;border-radius:20px;overflow:hidden;background:#edf0f4;display:flex;align-items:center;justify-content:center;flex-shrink:0">{{SET_IMAGE}}</div>
-  <div><span class="tag tag-green">VERDICT</span><h2 style="font-size:48px;margin-top:8px;color:#34D399">Strong Buy</h2></div>
+<div style="display:flex;justify-content:space-between;align-items:center">
+  <div class="row"><span class="tag">{{VS_LABEL}}</span><span class="meta" style="margin:0">{{THEME}} &middot; {{YEAR}} &middot; {{PIECES}} pcs</span></div>
+  <span style="font-size:28px;font-weight:800;color:#F5C842">SET VS SET</span>
 </div>
-<p style="font-size:26px;color:rgba(255,255,255,0.45);line-height:1.6;margin-bottom:20px">At {{CURRENT_VALUE}}, this set still has significant upside based on category trends and retirement patterns.</p>
-<div style="display:flex;flex-direction:column;gap:14px;flex:1">
-  <div class="stat" style="display:flex;align-items:center;gap:20px"><span style="font-size:32px;color:#34D399">&#10003;</span><span style="font-size:26px">{{THEME}} theme holds strong collector demand</span></div>
-  <div class="stat" style="display:flex;align-items:center;gap:20px"><span style="font-size:32px;color:#34D399">&#10003;</span><span style="font-size:26px">{{PIECES}} pieces = high perceived value</span></div>
-  <div class="stat" style="display:flex;align-items:center;gap:20px"><span style="font-size:32px;color:#34D399">&#10003;</span><span style="font-size:26px">12-month growth at {{GROWTH_12M}}</span></div>
+<div class="photo" style="flex:1;min-height:0;margin:12px 0 0">{{SET_IMAGE}}<div class="num">#{{SET_NUMBER}}</div></div>
+<h2 style="margin:14px 0 0;font-size:50px;font-weight:800">{{NAME}}</h2>
+<div style="margin:10px 0 14px;display:flex;align-items:baseline;gap:20px">
+  <span style="font-size:110px;font-weight:800;color:{{CHANGE_COLOR}};line-height:1;letter-spacing:-0.03em">{{DAILY_CHANGE}}</span>
+  <span style="font-size:24px;color:rgba(255,255,255,0.4)">{{CHANGE_LABEL}}</span>
 </div>
-<div style="background:rgba(245,200,66,0.08);border:2px solid rgba(245,200,66,0.18);border-radius:24px;padding:32px;text-align:center;margin-top:16px">
-  <p class="muted" style="font-size:20px;letter-spacing:0.12em;margin-bottom:10px">2-YEAR FORECAST</p>
-  <p style="font-size:64px;font-weight:800;color:#F5C842">{{FORECAST_2Y}}</p>
+<div style="display:flex;gap:12px">
+  <div class="stat"><div class="label">RETAIL</div><div class="val muted" style="text-decoration:line-through;text-decoration-color:rgba(255,255,255,0.15)">{{RETAIL_PRICE}}</div></div>
+  <div class="stat"><div class="label">NOW</div><div class="val gold">{{CURRENT_VALUE}}</div></div>
+  <div class="stat"><div class="label">STATUS</div><div class="val" style="color:{{STATUS_COLOR}}">{{STATUS}}</div></div>
 </div>
+<div style="margin-top:10px">{{TREND_SVG}}</div>
 <div class="footer"><div class="logo"><div class="logo-icon">BX</div><span class="logo-text">BRIX</span></div><span class="url">brixcollector.com</span></div>
 </body></html>

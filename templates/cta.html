@@ -1,36 +1,33 @@
-<!DOCTYPE html><html><head><meta charset="utf-8"><style>* { margin: 0; padding: 0; box-sizing: border-box; }
-body { width: 1080px; height: 1920px; background: #0D1B35; color: #fff; font-family: 'Inter', 'Segoe UI', system-ui, sans-serif; overflow: hidden; display: flex; flex-direction: column; padding: 80px 60px 60px; }
-.tag { display: inline-block; padding: 10px 24px; border-radius: 8px; font-size: 22px; font-weight: 700; letter-spacing: 0.15em; background: rgba(245,200,66,0.12); color: #F5C842; }
-.tag.green { background: rgba(52,211,153,0.12); color: #34D399; }
-.tag.red { background: rgba(248,113,113,0.12); color: #F87171; }
-h1 { font-size: 72px; font-weight: 800; line-height: 1.12; }
-h2 { font-size: 56px; font-weight: 800; line-height: 1.15; }
+<!DOCTYPE html><html><head><meta charset="utf-8"><style>@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap');
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { width: 1080px; height: 1920px; background: #0D1B35; color: #fff; font-family: 'Inter', sans-serif; overflow: hidden; display: flex; flex-direction: column; padding: 80px 44px 80px; }
 .muted { color: rgba(255,255,255,0.4); }
-.small { font-size: 24px; letter-spacing: 0.05em; }
-.photo-box { width: 100%; border-radius: 28px; overflow: hidden; background: linear-gradient(135deg, rgba(245,200,66,0.06), rgba(245,200,66,0.02)); border: 2px solid rgba(245,200,66,0.1); display: flex; align-items: center; justify-content: center; position: relative; margin: 24px 0; }
-.photo-box img { width: 100%; height: 100%; object-fit: contain; }
-.photo-box .photo-placeholder { font-size: 80px; }
-.set-num { position: absolute; top: 16px; right: 16px; background: rgba(13,27,53,0.85); border: 1px solid rgba(245,200,66,0.2); border-radius: 12px; padding: 6px 16px; font-size: 22px; color: rgba(255,255,255,0.5); }
-.stat-row { display: flex; gap: 16px; margin-top: 20px; }
-.stat-box { flex: 1; background: rgba(255,255,255,0.04); border-radius: 20px; padding: 24px 28px; }
-.stat-box .label { font-size: 18px; color: rgba(255,255,255,0.35); letter-spacing: 0.12em; margin-bottom: 10px; }
-.stat-box .value { font-size: 36px; font-weight: 700; }
-.chart-box { background: rgba(255,255,255,0.04); border-radius: 20px; padding: 28px; margin-top: 16px; }
-.big-number { font-size: 96px; font-weight: 800; line-height: 1; letter-spacing: -0.03em; }
-.price-card { background: rgba(52,211,153,0.06); border: 2px solid rgba(52,211,153,0.15); border-radius: 28px; padding: 36px; text-align: center; margin: 24px 0; }
-.footer { margin-top: auto; padding-top: 20px; display: flex; align-items: center; justify-content: space-between; }
-.logo { display: flex; align-items: center; gap: 14px; }
-.logo-icon { width: 52px; height: 52px; background: #F5C842; border-radius: 11px; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 20px; color: #0D1B35; }
-.logo-text { font-weight: 700; font-size: 26px; color: #F5C842; letter-spacing: 0.08em; }
+.meta { font-size: 24px; color: rgba(255,255,255,0.4); letter-spacing: 0.04em; }
+.photo { width: 100%; border-radius: 24px; overflow: hidden; background: #edf0f4; position: relative; display: flex; align-items: center; justify-content: center; }
+.photo img { width: 100%; height: 100%; object-fit: contain; }
+.photo .num { position: absolute; top: 14px; right: 14px; background: rgba(13,27,53,0.85); border: 1px solid rgba(245,200,66,0.25); border-radius: 10px; padding: 5px 14px; font-size: 20px; color: rgba(255,255,255,0.5); font-weight: 600; }
+.photo .photo-placeholder { font-size: 64px; padding: 60px 0; }
+.stat { flex: 1; background: rgba(255,255,255,0.04); border-radius: 18px; padding: 24px; }
+.stat .label { font-size: 17px; color: rgba(255,255,255,0.35); letter-spacing: 0.12em; font-weight: 600; margin-bottom: 8px; }
+.stat .val { font-size: 46px; font-weight: 700; }
+.footer { margin-top: auto; padding-top: 16px; display: flex; align-items: center; justify-content: space-between; }
+.logo { display: flex; align-items: center; gap: 12px; }
+.logo-icon { width: 48px; height: 48px; background: #F5C842; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 18px; color: #0D1B35; }
+.logo-text { font-weight: 700; font-size: 24px; color: #F5C842; letter-spacing: 0.08em; }
 .url { font-size: 20px; color: rgba(255,255,255,0.3); }
-.rank { width: 64px; height: 64px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 28px; }
-.spacer { flex: 1; }
-.gold { color: #F5C842; } .green { color: #34D399; } .red { color: #F87171; }</style></head><body>
+.gold { color: #F5C842; } .green { color: #34D399; } .red { color: #F87171; }
+.row { display: flex; align-items: center; gap: 16px; }
+.rank { width: 64px; height: 64px; border-radius: 14px; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; font-size: 28px; }
+.tag { display: inline-block; padding: 10px 22px; border-radius: 8px; font-size: 22px; font-weight: 700; letter-spacing: 0.14em; background: rgba(245,200,66,0.12); color: #F5C842; }
+.tag-green { background: rgba(52,211,153,0.12); color: #34D399; }
+.tag-red { background: rgba(248,113,113,0.12); color: #F87171; }</style></head><body>
 <div style="flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center">
-  <div style="width:120px;height:120px;background:#F5C842;border-radius:28px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:44px;color:#0D1B35;margin-bottom:50px">BX</div>
-  <h1 style="font-size:60px">Know What Your<br>LEGO Is Worth</h1>
-  <p class="muted" style="font-size:28px;margin-top:24px;line-height:1.5">Track prices. Spot opportunities.<br>Build wealth, brick by brick.</p>
-  <div style="margin-top:44px;background:#F5C842;color:#0D1B35;font-weight:700;font-size:30px;padding:26px 56px;border-radius:20px">Join the waitlist &rarr;</div>
-  <p class="muted" style="font-size:24px;margin-top:28px">@brixcollector</p></div>
+  <div style="width:130px;height:130px;background:#F5C842;border-radius:30px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:48px;color:#0D1B35;margin-bottom:44px">BX</div>
+  <h1 style="font-size:64px;color:#F5C842;font-weight:800">BRIX</h1>
+  <p style="font-size:36px;color:#fff;margin-top:16px;font-weight:700">Know What Your<br>LEGO Is Worth</p>
+  <p class="muted" style="font-size:28px;margin-top:18px;line-height:1.5">Track prices. Spot opportunities.<br>Build wealth, brick by brick.</p>
+  <div style="margin-top:40px;background:#F5C842;color:#0D1B35;font-weight:700;font-size:34px;padding:28px 56px;border-radius:20px">Link in bio &uarr;</div>
+  <p class="muted" style="font-size:24px;margin-top:24px">@brix.app1 &middot; brixcollector.com</p>
+</div>
 <div class="footer"><div class="logo"><div class="logo-icon">BX</div><span class="logo-text">BRIX</span></div><span class="url">brixcollector.com</span></div>
 </body></html>

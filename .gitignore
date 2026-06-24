@@ -2,3 +2,5 @@ node_modules/
 output/
 .env
 data/price-history.json
+data/scrape-cache.json
+firebase-service-account.json
