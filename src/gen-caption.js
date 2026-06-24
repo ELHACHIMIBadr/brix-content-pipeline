@@ -4,6 +4,7 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
+import { retry } from './retry.js';
 
 let client = null;
 
@@ -46,12 +47,12 @@ export async function generateCaption(templateType, sets, apiKey) {
   const prompt = prompts[templateType] || `Write a caption for a LEGO investment post about:\n${setDescriptions}`;
 
   try {
-    const message = await c.messages.create({
+    const message = await retry(() => c.messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 500,
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: prompt }],
-    });
+    }), { attempts: 3, delayMs: 5000, label: 'Claude API' });
 
     return message.content[0].text.trim();
   } catch (err) {

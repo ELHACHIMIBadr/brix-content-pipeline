@@ -7,6 +7,7 @@ import admin from 'firebase-admin';
 import { readFileSync, existsSync } from 'fs';
 import { join, dirname, basename } from 'path';
 import { fileURLToPath } from 'url';
+import { retry } from './retry.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SERVICE_ACCOUNT_PATH = join(__dirname, '..', 'firebase-service-account.json');
@@ -74,7 +75,7 @@ export async function uploadSlides(slidePaths, postId) {
     const remotePath = `content-pipeline/${postId}/${fileName}`;
 
     try {
-      const url = await uploadFile(localPath, remotePath);
+      const url = await retry(() => uploadFile(localPath, remotePath), { attempts: 3, delayMs: 5000, label: `Slide ${i + 1}` });
       if (url) {
         urls.push(url);
         console.log(`    ✅ Slide ${i + 1}: uploaded`);

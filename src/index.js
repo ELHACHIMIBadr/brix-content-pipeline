@@ -33,12 +33,12 @@ function getTodayTemplates() {
   const day = new Date().getDay();
   const filter = config.templateFilter;
   const all = {
-    'top-gainers': true,
-    'deep-dive': [2, 4, 6].includes(day),
-    'price-alert': true,
-    'retirement-watch': [2, 5].includes(day),
-    'weekly-wrap': day === 1,
-    'set-vs-set': [1, 3, 5].includes(day),
+    'top-gainers':      [0, 2, 4, 6].includes(day),  // Sun, Tue, Thu, Sat
+    'deep-dive':        [1, 4].includes(day),        // Mon, Thu
+    'price-alert':      [3, 5].includes(day),        // Wed, Fri
+    'retirement-watch': [2, 5].includes(day),         // Tue, Fri
+    'weekly-wrap':      day === 1,                    // Mon
+    'set-vs-set':       [0, 3, 6].includes(day),      // Sun, Wed, Sat
   };
   if (filter) return [filter];
   return Object.entries(all).filter(([_, active]) => active).map(([name]) => name);
