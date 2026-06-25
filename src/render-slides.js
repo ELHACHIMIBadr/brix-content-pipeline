@@ -136,7 +136,8 @@ function prepareSlideData(templateType, setData, imageMap) {
 async function renderToPNG(browser, html, outputPath) {
   const page = await browser.newPage();
   await page.setViewport({ width: WIDTH, height: HEIGHT, deviceScaleFactor: 1 });
-  await page.setContent(html, { waitUntil: 'networkidle0', timeout: 15000 });
+  await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await new Promise(r => setTimeout(r, 1500)); // wait for fonts
   await page.screenshot({ path: outputPath, type: 'png', fullPage: false });
   await page.close();
 }
