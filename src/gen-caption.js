@@ -9,7 +9,12 @@ import { retry } from './retry.js';
 let client = null;
 
 function getClient(apiKey) {
-  if (!client) client = new Anthropic({ apiKey });
+  // maxRetries: 0 because our own retry() wrapper already handles retries —
+  // stacking both leads to long compounded backoff on transient CI network blips.
+  // timeout: 60s — GitHub Actions runners occasionally have slow/flaky egress,
+  // and the SDK's default timeout combined with "Premature close" errors was
+  // killing requests too early.
+  if (!client) client = new Anthropic({ apiKey, maxRetries: 0, timeout: 60_000 });
   return client;
 }
 
@@ -52,7 +57,7 @@ export async function generateCaption(templateType, sets, apiKey) {
       max_tokens: 500,
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: prompt }],
-    }), { attempts: 3, delayMs: 5000, label: 'Claude API' });
+    }), { attempts: 4, delayMs: 8000, label: 'Claude API' });
 
     return message.content[0].text.trim();
   } catch (err) {

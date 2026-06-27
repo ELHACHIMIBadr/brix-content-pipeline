@@ -19,7 +19,11 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          # Pinned to an exact patch version (not just '22') — a silent Node
+          # patch bump previously broke googleapis.com/Anthropic keep-alive
+          # connections with "Premature close" errors on CI runners. Bump this
+          # deliberately after testing, not automatically.
+          node-version: '22.11.0'
 
       - name: Install dependencies
         run: npm install
