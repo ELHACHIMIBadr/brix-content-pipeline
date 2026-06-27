@@ -1,5 +1,5 @@
 /**
- * BrickEconomy Scraper v4 — Individual set pages
+ * BrickEconomy Scraper v5 — Individual set pages
  * 
  * Strategy:
  * - Maintain a curated list of set URLs
@@ -8,16 +8,23 @@
  * - Cache for 24h (one scrape per day)
  * - 0 API calls consumed
  *
- * v4 changes (debugging retail_price/current_value/image_url returning 0 for
- * every set on 2026-06-27 while growth/pieces/year/theme extracted fine):
- * - Wait for a real content signal (the page's <title>) instead of a blind
- *   1.5s timeout — if BrickEconomy's valuation widget loads async/late, a
- *   fixed short wait silently misses it while the rest of the DOM is already there.
- * - Dismiss cookie/consent banners before reading text — a banner can sit on
- *   top of the page without blocking document.body.innerText, but some sites
- *   delay rendering the real widget content until consent is resolved.
- * - On regex extraction failure for price fields, dump the raw page text to
- *   data/debug-scrape/<setId>.txt so we can see exactly what Puppeteer saw.
+ * v5 — ROOT CAUSE FOUND (confirmed via debug dumps on 2026-06-27):
+ * BrickEconomy serves the page in GBP (£) when scraped from a UK-geolocated
+ * IP (GitHub Actions runner), not USD ($). Every regex in v3/v4 only matched
+ * a literal "$", so retail_price/current_value silently stayed 0 for every
+ * single set — confirmed by "Region · United Kingdom (GBP)" in the page footer
+ * and "Retail price £199.99" etc. throughout the debug dumps.
+ *
+ * Fix:
+ * 1. Parse the structured "Set Pricing" block (Retail price / Value labels
+ *    followed by a price on the next line) instead of relying on a narrative
+ *    sentence — far more stable across retired/available/exclusive statuses.
+ * 2. Currency-agnostic regex ([£$€]) for all price patterns, narrative
+ *    fallback included.
+ * 3. Always normalize to USD using the "Regional Retail Prices (LEGO.com/Store)"
+ *    block, which lists "United States $X.XX" regardless of the page's
+ *    detected region — so BRIX's captions/templates stay consistent in USD
+ *    no matter where the scraper runs from.
  */
 
 import puppeteer from 'puppeteer';
@@ -71,7 +78,6 @@ async function dismissCookieBanner(page) {
         const el = document.querySelector(sel);
         if (el) { el.click(); return; }
       }
-      // Generic fallback: any button whose text mentions accept/agree
       const buttons = Array.from(document.querySelectorAll('button'));
       const match = buttons.find(b => /accept|agree|got it/i.test(b.textContent || ''));
       if (match) match.click();
@@ -85,119 +91,160 @@ async function dismissCookieBanner(page) {
  * Scrape a single set page and extract structured data
  */
 async function scrapeSetPage(page, setId) {
-  // Build URL: /set/{number}/lego-{slug} — we only need the number part
   const cleanId = setId.includes('-') ? setId : `${setId}-1`;
   const url = `${BASE}/set/${cleanId}/`;
 
   try {
     await page.goto(url, { waitUntil: 'networkidle2', timeout: 20000 });
 
-    // Wait for the actual page title to be populated (real content signal)
-    // rather than a blind fixed delay — BrickEconomy's valuation widget can
-    // finish rendering after networkidle2 fires.
     try {
       await page.waitForFunction(
         () => document.querySelector('title')?.textContent?.includes('|'),
         { timeout: 8000 }
       );
     } catch {
-      // proceed anyway — we'll dump debug text below if extraction fails
+      // proceed anyway
     }
 
     await dismissCookieBanner(page);
-    await new Promise(r => setTimeout(r, 1500)); // settle time for any post-consent re-render
+    await new Promise(r => setTimeout(r, 1500));
 
     const data = await page.evaluate((baseUrl) => {
       const text = document.body.innerText || '';
       const html = document.body.innerHTML || '';
 
-      // Name: from the h1 or title, after the set number
+      // Currency-agnostic number pattern: matches £199.99 / $199.99 / €199.99
+      const CUR = '[£$€]';
+
       const titleEl = document.querySelector('title');
       const titleText = titleEl ? titleEl.textContent : '';
-      // Title format: "LEGO 10294 Titanic | BrickEconomy"
       const titleMatch = titleText.match(/LEGO\s+\d+\s+(.+?)\s*\|/);
       const name = titleMatch ? titleMatch[1].trim() : '';
 
-      // Set number from URL
       const urlMatch = window.location.pathname.match(/\/set\/(\d+(?:-\d+)?)\//);
       const setNumber = urlMatch ? urlMatch[1] : '';
 
-      // Theme: from breadcrumb
       const breadcrumbs = document.querySelectorAll('ol.breadcrumb li, nav ol li, .breadcrumb-item');
       let theme = '';
       if (breadcrumbs.length >= 3) {
         theme = breadcrumbs[1]?.textContent?.trim() || '';
       }
-      // Fallback: look for theme in page text
       if (!theme) {
         const themeMatch = text.match(/is a[n]? ([A-Za-z][A-Za-z\s&]+?) set/);
         if (themeMatch) theme = themeMatch[1].trim();
       }
 
-      // Pieces
       const piecesMatch = text.match(/([\d,]+)\s*piece/i);
       const pieces = piecesMatch ? parseInt(piecesMatch[1].replace(/,/g, '')) : 0;
 
-      // Year
       const yearMatch = text.match(/released in (\d{4})/i);
       const year = yearMatch ? parseInt(yearMatch[1]) : 0;
 
-      // Retail price — try several known BrickEconomy phrasings:
-      //  "available at retail for $X"   (available sets)
-      //  "from an original retail price of $X" (retired sets)
-      //  "retail price of/for $X"
-      //  "RRP ... $X" / "RRP: $X"
-      let retailPrice = 0;
+      // ── PRIMARY SOURCE: "Regional Retail Prices (LEGO.com/Store)" block ──
+      // This block always lists "United States $X.XX" regardless of the
+      // page's detected region/currency — use it to normalize to USD.
+      let retailPriceUSD = 0;
+      const usRetailMatch = text.match(/United States\s*\$([\d,]+(?:\.\d+)?)/i);
+      if (usRetailMatch) retailPriceUSD = parseFloat(usRetailMatch[1].replace(/,/g, ''));
+
+      // ── Structured "Set Pricing" block (currency-agnostic) ──
+      // Format in page text:
+      //   Set Pricing
+      //   Retail price
+      //   £199.99
+      //   New/Sealed
+      //   Value
+      //   £239.39
+      //   Growth
+      //   +19.70%
+      let retailPriceLocal = 0;
+      let currentValueLocal = 0;
+      let growthFromBlock = 0;
+      const pricingBlockMatch = text.match(/Set Pricing([\s\S]{0,400}?)(?:Quick Buy|Set Predictions|Used\b)/i);
+      if (pricingBlockMatch) {
+        const block = pricingBlockMatch[1];
+        const retailM = block.match(new RegExp(`Retail price\\s*${CUR}([\\d,]+(?:\\.\\d+)?)`, 'i'));
+        if (retailM) retailPriceLocal = parseFloat(retailM[1].replace(/,/g, ''));
+        const valueM = block.match(new RegExp(`Value\\s*${CUR}([\\d,]+(?:\\.\\d+)?)`, 'i'));
+        if (valueM) currentValueLocal = parseFloat(valueM[1].replace(/,/g, ''));
+        const growthM = block.match(/Growth\s*\+?(-?[\d.]+)%/i);
+        if (growthM) growthFromBlock = parseFloat(growthM[1]);
+      }
+
+      // Currency-agnostic narrative fallbacks (used only if structured block missing)
+      let retailPriceNarrative = 0;
       const retailPatterns = [
-        /retail\s+(?:price\s+)?(?:of|for)\s*\$([\d,]+(?:\.\d+)?)/i,
-        /original retail price of \$([\d,]+(?:\.\d+)?)/i,
-        /RRP[^$]{0,20}\$([\d,]+(?:\.\d+)?)/i,
+        new RegExp(`retail\\s+(?:price\\s+)?(?:of|for)\\s*${CUR}([\\d,]+(?:\\.\\d+)?)`, 'i'),
+        new RegExp(`original retail price of ${CUR}([\\d,]+(?:\\.\\d+)?)`, 'i'),
+        new RegExp(`RRP[^£$€]{0,20}${CUR}([\\d,]+(?:\\.\\d+)?)`, 'i'),
       ];
       for (const re of retailPatterns) {
         const m = text.match(re);
-        if (m) { retailPrice = parseFloat(m[1].replace(/,/g, '')); break; }
+        if (m) { retailPriceNarrative = parseFloat(m[1].replace(/,/g, '')); break; }
       }
 
-      // Current value — look for "valued at $X" or "average above MSRP at $X"
-      let currentValue = 0;
-      const valuedMatch = text.match(/valued at \$([\d,]+(?:\.\d+)?)/i);
-      const avgMatch = text.match(/average (?:above|below) MSRP at \$([\d,]+(?:\.\d+)?)/i);
-      const rangeMatch = text.match(/range from \$([\d,]+(?:\.\d+)?) to \$([\d,]+(?:\.\d+)?)/i);
-
+      let currentValueNarrative = 0;
+      const valuedMatch = text.match(new RegExp(`valued at ${CUR}([\\d,]+(?:\\.\\d+)?)`, 'i'));
+      const avgMatch = text.match(new RegExp(`average (?:above|below) MSRP at ${CUR}([\\d,]+(?:\\.\\d+)?)`, 'i'));
+      const rangeMatch = text.match(new RegExp(`range from ${CUR}([\\d,]+(?:\\.\\d+)?) to ${CUR}([\\d,]+(?:\\.\\d+)?)`, 'i'));
       if (avgMatch) {
-        currentValue = parseFloat(avgMatch[1].replace(/,/g, ''));
+        currentValueNarrative = parseFloat(avgMatch[1].replace(/,/g, ''));
       } else if (valuedMatch) {
-        currentValue = parseFloat(valuedMatch[1].replace(/,/g, ''));
+        currentValueNarrative = parseFloat(valuedMatch[1].replace(/,/g, ''));
       } else if (rangeMatch) {
         const low = parseFloat(rangeMatch[1].replace(/,/g, ''));
         const high = parseFloat(rangeMatch[2].replace(/,/g, ''));
-        currentValue = (low + high) / 2;
+        currentValueNarrative = (low + high) / 2;
       }
-      // If still 0, current value = retail price (set is at/near retail)
+
+      // ── Resolve final retail price (USD) ──
+      // Priority: US regional price (always USD) > structured block > narrative
+      // If we only have a local-currency price (structured/narrative) and no
+      // USD regional price, scale the current value by the same local price
+      // so ROI% stays correct even if absolute USD figures are approximate.
+      const retailPriceLocalBest = retailPriceLocal || retailPriceNarrative;
+      const currentValueLocalBest = currentValueLocal || currentValueNarrative;
+
+      let retailPrice = retailPriceUSD;
+      let currentValue = 0;
+
+      if (retailPrice && retailPriceLocalBest && currentValueLocalBest) {
+        // Scale local current value into USD using the local retail price as
+        // the conversion anchor — preserves the real ROI% without needing
+        // live FX rates.
+        currentValue = Math.round((currentValueLocalBest / retailPriceLocalBest) * retailPrice * 100) / 100;
+      } else if (retailPrice && currentValueLocalBest && !retailPriceLocalBest) {
+        currentValue = currentValueLocalBest; // best effort, likely already USD-ish
+      } else if (!retailPrice) {
+        // No US regional price found at all — fall back to whatever currency
+        // the page was served in (still better than 0; figures will be in
+        // that currency's units, ROI% remains accurate).
+        retailPrice = retailPriceLocalBest;
+        currentValue = currentValueLocalBest;
+      }
+
       if (!currentValue && retailPrice) currentValue = retailPrice;
 
-      // Growth percentage
+      // Growth percentage — prefer the structured block, then narrative
       const growthMatch = text.match(/up ([\d,.]+)%/i);
       const growthDown = text.match(/down ([\d,.]+)%/i);
-      let growth = 0;
-      if (growthMatch) growth = parseFloat(growthMatch[1].replace(/,/g, ''));
-      else if (growthDown) growth = -parseFloat(growthDown[1].replace(/,/g, ''));
+      let growth = growthFromBlock || 0;
+      if (!growth) {
+        if (growthMatch) growth = parseFloat(growthMatch[1].replace(/,/g, ''));
+        else if (growthDown) growth = -parseFloat(growthDown[1].replace(/,/g, ''));
+      }
 
-      // Annual growth (CAGR)
       const cagrMatch = text.match(/annual growth (?:will be |of |close to )([\d,.]+)%/i);
       const annualGrowth = cagrMatch ? parseFloat(cagrMatch[1].replace(/,/g, '')) : 0;
 
-      // Status: retired or available
       const isRetired = /is a .+ set valued at/i.test(text) || /retired/i.test(text.substring(0, 500));
       const isAvailable = /currently available at retail/i.test(text);
       const retired = isRetired && !isAvailable;
 
-      // Retirement estimate
       const retireMatch = text.match(/projected to retire in (.+?)\./i);
       const retirementEstimate = retireMatch ? retireMatch[1].trim() : '';
 
-      // Forecast value
-      const forecastMatch = text.match(/valuing the set between \$([\d,]+(?:\.\d+)?) and \$([\d,]+(?:\.\d+)?)/i);
+      const forecastMatch = text.match(new RegExp(`valuing the set between ${CUR}([\\d,]+(?:\\.\\d+)?) and ${CUR}([\\d,]+(?:\\.\\d+)?)`, 'i'));
       let forecast2y = null;
       if (forecastMatch) {
         const low = parseFloat(forecastMatch[1].replace(/,/g, ''));
@@ -205,7 +252,6 @@ async function scrapeSetPage(page, setId) {
         forecast2y = Math.round((low + high) / 2);
       }
 
-      // Image URL — try og:image first, then a product image in the DOM
       const ogImage = document.querySelector('meta[property="og:image"]');
       let imageUrl = ogImage ? ogImage.getAttribute('content') : '';
       if (!imageUrl) {
@@ -217,13 +263,11 @@ async function scrapeSetPage(page, setId) {
         setNumber, name, theme, year, pieces,
         retailPrice, currentValue, growth, annualGrowth,
         retired, retirementEstimate, forecast2y, imageUrl,
-        _rawTextSample: text.substring(0, 600), // for debugging
       };
     }, BASE);
 
     if (!data.name && !data.setNumber) return null;
 
-    // If price extraction failed, dump full text+html for offline inspection
     if (!data.retailPrice && !data.currentValue) {
       const text = await page.evaluate(() => document.body.innerText || '');
       const html = await page.content();
@@ -231,7 +275,6 @@ async function scrapeSetPage(page, setId) {
       console.log(`  ⚠️  ${cleanId}: price extraction failed — dumped debug text to data/debug-scrape/${cleanId}.txt`);
     }
 
-    // Calculate ROI
     const roi = data.retailPrice > 0
       ? Math.round(((data.currentValue - data.retailPrice) / data.retailPrice) * 100 * 10) / 10
       : data.growth;
@@ -267,7 +310,6 @@ async function scrapeSetPage(page, setId) {
 export async function scrapeAllData() {
   const today = new Date().toISOString().split('T')[0];
 
-  // Check cache
   const cached = loadCache();
   if (cached && cached._scrapeDate === today && !process.argv.includes('--force-fetch')) {
     console.log(`📋 Already scraped today (${today}) — using cache (${cached.sets.length} sets)`);
@@ -299,7 +341,6 @@ export async function scrapeAllData() {
         console.log(`    ✅ ${data.name} — $${Math.round(data.current_value)} (${data.roi > 0 ? '+' : ''}${data.roi}%)`);
       }
 
-      // Polite delay between requests
       await new Promise(r => setTimeout(r, 2000));
     }
   } finally {

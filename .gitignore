@@ -3,4 +3,5 @@ output/
 .env
 data/price-history.json
 data/scrape-cache.json
+data/debug-scrape/
 firebase-service-account.json
