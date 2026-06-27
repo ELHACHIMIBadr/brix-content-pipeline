@@ -1,5 +1,5 @@
 /**
- * BrickEconomy Scraper v3 — Individual set pages
+ * BrickEconomy Scraper v4 — Individual set pages
  * 
  * Strategy:
  * - Maintain a curated list of set URLs
@@ -7,10 +7,21 @@
  * - Extract accurate per-set data from the DOM
  * - Cache for 24h (one scrape per day)
  * - 0 API calls consumed
+ *
+ * v4 changes (debugging retail_price/current_value/image_url returning 0 for
+ * every set on 2026-06-27 while growth/pieces/year/theme extracted fine):
+ * - Wait for a real content signal (the page's <title>) instead of a blind
+ *   1.5s timeout — if BrickEconomy's valuation widget loads async/late, a
+ *   fixed short wait silently misses it while the rest of the DOM is already there.
+ * - Dismiss cookie/consent banners before reading text — a banner can sit on
+ *   top of the page without blocking document.body.innerText, but some sites
+ *   delay rendering the real widget content until consent is resolved.
+ * - On regex extraction failure for price fields, dump the raw page text to
+ *   data/debug-scrape/<setId>.txt so we can see exactly what Puppeteer saw.
  */
 
 import puppeteer from 'puppeteer';
-import { writeFileSync, existsSync, readFileSync } from 'fs';
+import { writeFileSync, existsSync, readFileSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -18,6 +29,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = join(__dirname, '..', 'data');
 const CACHE_FILE = join(DATA_DIR, 'scrape-cache.json');
 const SETS_FILE = join(DATA_DIR, 'tracked-sets.json');
+const DEBUG_DIR = join(DATA_DIR, 'debug-scrape');
 const BASE = 'https://www.brickeconomy.com';
 
 function loadCache() {
@@ -33,6 +45,42 @@ function loadTrackedSets() {
   return JSON.parse(readFileSync(SETS_FILE, 'utf8')).sets;
 }
 
+function dumpDebugText(setId, text, html) {
+  try {
+    mkdirSync(DEBUG_DIR, { recursive: true });
+    writeFileSync(join(DEBUG_DIR, `${setId}.txt`), text);
+    if (html) writeFileSync(join(DEBUG_DIR, `${setId}.html`), html);
+  } catch (e) {
+    console.error(`  ⚠️  Could not write debug dump for ${setId}: ${e.message}`);
+  }
+}
+
+/**
+ * Try to dismiss common cookie/consent banners (OneTrust, Cookiebot, generic).
+ * Best-effort — never throws.
+ */
+async function dismissCookieBanner(page) {
+  try {
+    await page.evaluate(() => {
+      const selectors = [
+        '#onetrust-accept-btn-handler',
+        '.cookie-accept', '.cookie-consent-accept', '.cc-accept',
+        'button[aria-label="Accept"]', 'button[aria-label="Accept all"]',
+      ];
+      for (const sel of selectors) {
+        const el = document.querySelector(sel);
+        if (el) { el.click(); return; }
+      }
+      // Generic fallback: any button whose text mentions accept/agree
+      const buttons = Array.from(document.querySelectorAll('button'));
+      const match = buttons.find(b => /accept|agree|got it/i.test(b.textContent || ''));
+      if (match) match.click();
+    });
+  } catch {
+    // non-fatal
+  }
+}
+
 /**
  * Scrape a single set page and extract structured data
  */
@@ -40,10 +88,24 @@ async function scrapeSetPage(page, setId) {
   // Build URL: /set/{number}/lego-{slug} — we only need the number part
   const cleanId = setId.includes('-') ? setId : `${setId}-1`;
   const url = `${BASE}/set/${cleanId}/`;
-  
+
   try {
     await page.goto(url, { waitUntil: 'networkidle2', timeout: 20000 });
-    await new Promise(r => setTimeout(r, 1500));
+
+    // Wait for the actual page title to be populated (real content signal)
+    // rather than a blind fixed delay — BrickEconomy's valuation widget can
+    // finish rendering after networkidle2 fires.
+    try {
+      await page.waitForFunction(
+        () => document.querySelector('title')?.textContent?.includes('|'),
+        { timeout: 8000 }
+      );
+    } catch {
+      // proceed anyway — we'll dump debug text below if extraction fails
+    }
+
+    await dismissCookieBanner(page);
+    await new Promise(r => setTimeout(r, 1500)); // settle time for any post-consent re-render
 
     const data = await page.evaluate((baseUrl) => {
       const text = document.body.innerText || '';
@@ -80,27 +142,38 @@ async function scrapeSetPage(page, setId) {
       const yearMatch = text.match(/released in (\d{4})/i);
       const year = yearMatch ? parseInt(yearMatch[1]) : 0;
 
-      // Retail price
-      const retailMatch = text.match(/retail (?:price )?(?:of |for )\$?([\d,.]+)/i);
-      const retailPrice = retailMatch ? parseFloat(retailMatch[1].replace(/,/g, '')) : 0;
+      // Retail price — try several known BrickEconomy phrasings:
+      //  "available at retail for $X"   (available sets)
+      //  "from an original retail price of $X" (retired sets)
+      //  "retail price of/for $X"
+      //  "RRP ... $X" / "RRP: $X"
+      let retailPrice = 0;
+      const retailPatterns = [
+        /retail\s+(?:price\s+)?(?:of|for)\s*\$([\d,]+(?:\.\d+)?)/i,
+        /original retail price of \$([\d,]+(?:\.\d+)?)/i,
+        /RRP[^$]{0,20}\$([\d,]+(?:\.\d+)?)/i,
+      ];
+      for (const re of retailPatterns) {
+        const m = text.match(re);
+        if (m) { retailPrice = parseFloat(m[1].replace(/,/g, '')); break; }
+      }
 
       // Current value — look for "valued at $X" or "average above MSRP at $X"
       let currentValue = 0;
-      const valuedMatch = text.match(/valued at \$([\d,.]+)/i);
-      const avgMatch = text.match(/average (?:above|below) MSRP at \$([\d,.]+)/i);
-      const rangeMatch = text.match(/range from \$([\d,.]+) to \$([\d,.]+)/i);
-      
+      const valuedMatch = text.match(/valued at \$([\d,]+(?:\.\d+)?)/i);
+      const avgMatch = text.match(/average (?:above|below) MSRP at \$([\d,]+(?:\.\d+)?)/i);
+      const rangeMatch = text.match(/range from \$([\d,]+(?:\.\d+)?) to \$([\d,]+(?:\.\d+)?)/i);
+
       if (avgMatch) {
         currentValue = parseFloat(avgMatch[1].replace(/,/g, ''));
       } else if (valuedMatch) {
         currentValue = parseFloat(valuedMatch[1].replace(/,/g, ''));
       } else if (rangeMatch) {
-        // Average of range
         const low = parseFloat(rangeMatch[1].replace(/,/g, ''));
         const high = parseFloat(rangeMatch[2].replace(/,/g, ''));
         currentValue = (low + high) / 2;
       }
-      // If still retail, current value = retail price
+      // If still 0, current value = retail price (set is at/near retail)
       if (!currentValue && retailPrice) currentValue = retailPrice;
 
       // Growth percentage
@@ -124,7 +197,7 @@ async function scrapeSetPage(page, setId) {
       const retirementEstimate = retireMatch ? retireMatch[1].trim() : '';
 
       // Forecast value
-      const forecastMatch = text.match(/valuing the set between \$([\d,.]+) and \$([\d,.]+)/i);
+      const forecastMatch = text.match(/valuing the set between \$([\d,]+(?:\.\d+)?) and \$([\d,]+(?:\.\d+)?)/i);
       let forecast2y = null;
       if (forecastMatch) {
         const low = parseFloat(forecastMatch[1].replace(/,/g, ''));
@@ -132,18 +205,31 @@ async function scrapeSetPage(page, setId) {
         forecast2y = Math.round((low + high) / 2);
       }
 
-      // Image URL
+      // Image URL — try og:image first, then a product image in the DOM
       const ogImage = document.querySelector('meta[property="og:image"]');
-      const imageUrl = ogImage ? ogImage.getAttribute('content') : '';
+      let imageUrl = ogImage ? ogImage.getAttribute('content') : '';
+      if (!imageUrl) {
+        const productImg = document.querySelector('img[src*="/set/"], img.SetImage, .ItemImage img');
+        if (productImg) imageUrl = productImg.getAttribute('src') || '';
+      }
 
       return {
         setNumber, name, theme, year, pieces,
         retailPrice, currentValue, growth, annualGrowth,
-        retired, retirementEstimate, forecast2y, imageUrl
+        retired, retirementEstimate, forecast2y, imageUrl,
+        _rawTextSample: text.substring(0, 600), // for debugging
       };
     }, BASE);
 
     if (!data.name && !data.setNumber) return null;
+
+    // If price extraction failed, dump full text+html for offline inspection
+    if (!data.retailPrice && !data.currentValue) {
+      const text = await page.evaluate(() => document.body.innerText || '');
+      const html = await page.content();
+      dumpDebugText(cleanId, text, html);
+      console.log(`  ⚠️  ${cleanId}: price extraction failed — dumped debug text to data/debug-scrape/${cleanId}.txt`);
+    }
 
     // Calculate ROI
     const roi = data.retailPrice > 0
@@ -206,7 +292,7 @@ export async function scrapeAllData() {
     for (let i = 0; i < setIds.length; i++) {
       const id = setIds[i];
       console.log(`  [${i + 1}/${setIds.length}] Scraping ${id}...`);
-      
+
       const data = await scrapeSetPage(page, id);
       if (data) {
         results.push(data);
