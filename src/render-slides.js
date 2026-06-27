@@ -1,5 +1,8 @@
 /**
- * Slide renderer v4 — fixes: $0→"—", set-vs-set passes both sets, no flex:1 on stat boxes
+ * Slide renderer v5 — dual format: 1080x1920 (TikTok, 9:16) + 1080x1350 (Instagram, 4:5)
+ * Same HTML/CSS templates, height overridden per format via injected style.
+ * Layout uses flex-direction:column with flex:1 on the photo and margin-top:auto
+ * on the footer, so reducing body height reflows correctly without per-template changes.
  */
 
 import puppeteer from 'puppeteer';
@@ -11,7 +14,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const TEMPLATE_DIR = join(__dirname, '..', 'templates');
 const OUTPUT_DIR = join(__dirname, '..', 'output', 'slides');
 const WIDTH = 1080;
-const HEIGHT = 1920;
+
+const FORMATS = {
+  tiktok: { height: 1920, suffix: 'tt' },     // 9:16 — native TikTok Photo Mode
+  instagram: { height: 1350, suffix: 'ig' },  // 4:5 — native Instagram carousel
+};
 
 function loadTemplate(name) {
   return readFileSync(join(TEMPLATE_DIR, `${name}.html`), 'utf8');
@@ -23,6 +30,16 @@ function fillTemplate(html, data) {
     result = result.replace(new RegExp(`{{${key}}}`, 'g'), value ?? '');
   }
   return result.replace(/\{\{[^}]+\}\}/g, '');
+}
+
+/**
+ * Override the template's hardcoded `body { height: 1920px }` for the target
+ * format. Injected as a <style> right before </head> so it wins by source order
+ * (equal specificity, later wins). Width stays 1080px for both formats.
+ */
+function applyFormatHeight(html, height) {
+  const override = `<style>body{height:${height}px !important;}</style>`;
+  return html.replace('</head>', `${override}</head>`);
 }
 
 function fmtPrice(v) {
@@ -133,15 +150,19 @@ function prepareSlideData(templateType, setData, imageMap) {
   };
 }
 
-async function renderToPNG(browser, html, outputPath) {
+async function renderToPNG(browser, html, outputPath, height) {
   const page = await browser.newPage();
-  await page.setViewport({ width: WIDTH, height: HEIGHT, deviceScaleFactor: 1 });
+  await page.setViewport({ width: WIDTH, height, deviceScaleFactor: 1 });
   await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 30000 });
   await new Promise(r => setTimeout(r, 1500)); // wait for fonts
   await page.screenshot({ path: outputPath, type: 'png', fullPage: false });
   await page.close();
 }
 
+/**
+ * Renders a full post for BOTH formats.
+ * Returns { tiktok: [...pngPaths], instagram: [...pngPaths] }
+ */
 export async function renderPost(templateName, sets, imageMap, postId) {
   svgN = 0;
   mkdirSync(OUTPUT_DIR, { recursive: true });
@@ -149,19 +170,22 @@ export async function renderPost(templateName, sets, imageMap, postId) {
     headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
   });
-  const pngPaths = [];
+
+  const result = { tiktok: [], instagram: [] };
+
   try {
     const files = getTemplateFiles(templateName);
+
     for (let i = 0; i < files.length; i++) {
       const { file, dataIndex } = files[i];
-      const html = loadTemplate(file);
+      const rawHtml = loadTemplate(file);
       const setData = Array.isArray(sets) ? (sets[dataIndex] || sets[0]) : sets;
       const data = prepareSlideData(templateName, setData, imageMap);
-      
+
       // Template-specific overrides
       if (templateName === 'top-gainers' && dataIndex !== undefined) data.RANK = dataIndex + 1;
       if (file === 'set-vs-set-set') data.VS_LABEL = dataIndex === 0 ? 'SET A' : 'SET B';
-      
+
       // For verdict, add both sets' data
       if (file === 'set-vs-set-verdict' && Array.isArray(sets) && sets.length >= 2) {
         const a = sets[0], b = sets[1];
@@ -178,14 +202,22 @@ export async function renderPost(templateName, sets, imageMap, postId) {
         data.SET_IMAGE = imageTag(imageMap?.[winner.set_number] || null);
       }
 
-      const filled = fillTemplate(html, data);
-      const out = join(OUTPUT_DIR, `${postId}-slide-${i + 1}.png`);
-      await renderToPNG(browser, filled, out);
-      pngPaths.push(out);
-      console.log(`  🖼️  ${postId} slide ${i + 1}/${files.length}`);
+      const filledBase = fillTemplate(rawHtml, data);
+
+      for (const [formatName, { height, suffix }] of Object.entries(FORMATS)) {
+        const html = applyFormatHeight(filledBase, height);
+        const out = join(OUTPUT_DIR, `${postId}-slide-${i + 1}-${suffix}.png`);
+        await renderToPNG(browser, html, out, height);
+        result[formatName].push(out);
+      }
+
+      console.log(`  🖼️  ${postId} slide ${i + 1}/${files.length} (tiktok 9:16 + instagram 4:5)`);
     }
-  } finally { await browser.close(); }
-  return pngPaths;
+  } finally {
+    await browser.close();
+  }
+
+  return result;
 }
 
 function getTemplateFiles(t) {

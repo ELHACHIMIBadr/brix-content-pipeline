@@ -1,6 +1,11 @@
 /**
  * Buffer GraphQL API publisher — correct mutation format
  * Creates image posts on TikTok and Instagram
+ *
+ * IMPORTANT: TikTok (Photo Mode) expects 9:16 (1080x1920) images.
+ * Instagram (carousel) expects 4:5 (1080x1350) images.
+ * Sending the same image set to both crops/letterboxes one of them.
+ * Each channel must receive its own matching image URLs — see publishToBuffer().
  */
 
 const BUFFER_API = 'https://api.buffer.com';
@@ -67,9 +72,12 @@ async function createImagePost(channelId, text, imageUrls, apiKey, isInstagram =
 }
 
 /**
- * Publish to all configured channels
+ * Publish to all configured channels.
+ *
+ * imageUrlsByFormat: { tiktok: [...urls], instagram: [...urls] }
+ * Each channel gets the image set rendered for ITS format — never shared.
  */
-export async function publishToBuffer(imageUrls, caption, config) {
+export async function publishToBuffer(imageUrlsByFormat, caption, config) {
   const { apiKey, igChannelId, tiktokChannelId } = config;
 
   if (!apiKey) {
@@ -77,20 +85,24 @@ export async function publishToBuffer(imageUrls, caption, config) {
     return null;
   }
 
-  if (!imageUrls || imageUrls.length === 0) {
-    console.log('  ⏭️  No image URLs, skipping');
-    return null;
-  }
-
   const channels = [];
-  if (igChannelId) channels.push({ id: igChannelId, name: 'Instagram', isInstagram: true });
-  if (tiktokChannelId) channels.push({ id: tiktokChannelId, name: 'TikTok', isInstagram: false });
+  if (igChannelId) {
+    channels.push({ id: igChannelId, name: 'Instagram', isInstagram: true, imageUrls: imageUrlsByFormat?.instagram });
+  }
+  if (tiktokChannelId) {
+    channels.push({ id: tiktokChannelId, name: 'TikTok', isInstagram: false, imageUrls: imageUrlsByFormat?.tiktok });
+  }
 
   console.log(`  📤 Publishing to ${channels.length} channel(s) via Buffer...`);
 
   for (const channel of channels) {
+    if (!channel.imageUrls || channel.imageUrls.length === 0) {
+      console.log(`  ⏭️  ${channel.name}: no image URLs for this format, skipping`);
+      continue;
+    }
+
     try {
-      const result = await createImagePost(channel.id, caption, imageUrls, apiKey, channel.isInstagram);
+      const result = await createImagePost(channel.id, caption, channel.imageUrls, apiKey, channel.isInstagram);
 
       if (result.errors) {
         console.error(`  ✗ ${channel.name}: ${JSON.stringify(result.errors)}`);
@@ -111,12 +123,16 @@ export async function publishToBuffer(imageUrls, caption, config) {
 /**
  * Dry-run: log what would be published
  */
-export function dryRunPublish(slidePaths, caption, templateName, imageUrls) {
+export function dryRunPublish(slidePathsByFormat, caption, templateName, imageUrlsByFormat) {
   console.log(`\n📋 DRY RUN — ${templateName}`);
-  console.log(`   Slides: ${slidePaths.length} images`);
-  if (imageUrls?.length) {
-    console.log(`   Firebase URLs:`);
-    imageUrls.forEach((u, i) => console.log(`     ${i + 1}. ${u}`));
+  for (const format of ['tiktok', 'instagram']) {
+    const slides = slidePathsByFormat?.[format] || [];
+    const urls = imageUrlsByFormat?.[format] || [];
+    console.log(`   [${format}] Slides: ${slides.length} images`);
+    if (urls.length) {
+      console.log(`   [${format}] Firebase URLs:`);
+      urls.forEach((u, i) => console.log(`     ${i + 1}. ${u}`));
+    }
   }
   console.log(`   Caption preview (first 200 chars):`);
   console.log(`     "${caption.substring(0, 200)}..."`);

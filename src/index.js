@@ -1,6 +1,11 @@
 /**
  * BRIX Content Pipeline — Main Orchestrator
- * Pipeline: scrape → select → render → upload → caption → publish
+ * Pipeline: scrape → select → render (dual format) → caption → upload → publish
+ *
+ * Each post is rendered in two formats:
+ *   - tiktok: 1080x1920 (9:16) — native TikTok Photo Mode
+ *   - instagram: 1080x1350 (4:5) — native Instagram carousel
+ * They are uploaded and published separately so neither platform crops/letterboxes.
  */
 
 import 'dotenv/config';
@@ -81,15 +86,23 @@ async function main() {
     }
 
     const postId = `${templateName}-${Date.now()}`;
-    const slidePaths = await renderPost(templateName, templateSets, imageMap, postId);
+
+    // slidePathsByFormat: { tiktok: [...9:16 pngs], instagram: [...4:5 pngs] }
+    const slidePathsByFormat = await renderPost(templateName, templateSets, imageMap, postId);
+
     const setsForCaption = Array.isArray(templateSets) ? templateSets : [templateSets];
     const caption = await generateCaption(templateName, setsForCaption, config.claudeKey);
-    const imageUrls = await uploadSlides(slidePaths, postId);
+
+    // Upload each format's slides separately — every channel gets only its own matching set
+    const imageUrlsByFormat = {
+      tiktok: await uploadSlides(slidePathsByFormat.tiktok, `${postId}-tt`),
+      instagram: await uploadSlides(slidePathsByFormat.instagram, `${postId}-ig`),
+    };
 
     if (config.dryRun) {
-      dryRunPublish(slidePaths, caption, templateName, imageUrls);
+      dryRunPublish(slidePathsByFormat, caption, templateName, imageUrlsByFormat);
     } else {
-      await publishToBuffer(imageUrls, caption, config.buffer);
+      await publishToBuffer(imageUrlsByFormat, caption, config.buffer);
     }
   }
 
